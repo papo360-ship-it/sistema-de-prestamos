@@ -111,3 +111,15 @@ export interface AppData {
   settings: Settings;
   movements: Movement[];
 }
+
+export interface LoanInput {
+  clientId: string;
+  amount: number;
+  interestRate: number;
+  installmentsCount: number;
+  frequency: Frequency;
+  startDate: string;
+  notes?: string;
+  currentBalance?: number;
+  status?: LoanStatus;
+}

@@ -10,6 +10,7 @@ import {
   resetData,
   saveData,
   updateClient,
+  updateLoan,
   updateSettings
 } from "@/services/store";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -21,9 +22,10 @@ import {
   fetchAppData,
   registerPaymentRemote,
   updateClientRemote,
+  updateLoanRemote,
   updateSettingsRemote
 } from "@/services/supabaseStore";
-import type { AppData, Client, Loan, Payment, Profile, Settings } from "@/types";
+import type { AppData, Client, LoanInput, Payment, Profile, Settings } from "@/types";
 
 interface DataContextValue {
   data: AppData;
@@ -35,10 +37,8 @@ interface DataContextValue {
   addClient: (input: Omit<Client, "id" | "createdAt" | "updatedAt">) => Promise<void>;
   editClient: (id: string, input: Partial<Client>) => Promise<void>;
   removeClient: (id: string) => Promise<void>;
-  addLoan: (
-    input: Pick<Loan, "clientId" | "amount" | "interestRate" | "installmentsCount" | "frequency" | "startDate" | "notes">,
-    userId: string
-  ) => Promise<void>;
+  addLoan: (input: LoanInput, userId: string) => Promise<void>;
+  editLoan: (id: string, input: LoanInput, userId: string) => Promise<void>;
   addPayment: (
     input: Omit<Payment, "id" | "registeredBy" | "createdAt">,
     userId: string
@@ -120,6 +120,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addLoan: (input, userId) => runRemote(
         () => createLoanRemote(input, userId),
         () => setData((current) => createLoan(current, input, userId))
+      ),
+      editLoan: (id, input, userId) => runRemote(
+        () => updateLoanRemote(id, input, userId),
+        () => setData((current) => updateLoan(current, id, input, userId))
       ),
       addPayment: (input, userId) => runRemote(
         () => registerPaymentRemote(data, input, userId),

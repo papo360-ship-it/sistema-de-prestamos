@@ -47,6 +47,7 @@ export function App() {
         <Route path="clientes/:id" element={<ClientDetailPage />} />
         <Route path="prestamos" element={<LoansPage />} />
         <Route path="prestamos/nuevo" element={<LoanFormPage />} />
+        <Route path="prestamos/:id/editar" element={<LoanFormPage />} />
         <Route path="prestamos/:id" element={<LoanDetailPage />} />
         <Route path="simulador" element={<SimulatorPage />} />
         <Route path="cobros" element={<CollectionsPage />} />

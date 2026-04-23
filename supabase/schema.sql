@@ -222,8 +222,8 @@ for select using (
 create policy "payments_insert_authenticated" on public.pagos
 for insert with check (auth.role() = 'authenticated');
 
-create policy "movements_select_admin" on public.historial_movimientos
-for select using (public.current_role() = 'admin');
+create policy "movements_select_authenticated" on public.historial_movimientos
+for select using (auth.role() = 'authenticated');
 
 create policy "movements_insert_authenticated" on public.historial_movimientos
 for insert with check (auth.role() = 'authenticated');

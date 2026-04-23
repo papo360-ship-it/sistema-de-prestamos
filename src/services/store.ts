@@ -11,6 +11,7 @@ import type {
   PaymentMethod,
   PaymentType,
   Profile,
+  LoanInput,
   Settings
 } from "@/types";
 
@@ -84,9 +85,32 @@ export function deleteClient(data: AppData, clientId: string): AppData {
   };
 }
 
+function applyPaidAmountToSchedule(installments: Installment[], paidAmount: number, settings: Settings) {
+  let remainingPaid = Math.max(0, paidAmount);
+
+  return installments.map((installment) => {
+    const applied = Math.min(installment.amount, remainingPaid);
+    remainingPaid -= applied;
+
+    return refreshInstallmentStatus(
+      {
+        ...installment,
+        paidAmount: applied,
+        balance: installment.amount - applied
+      },
+      settings
+    );
+  });
+}
+
+function principalFromBalance(amount: number, totalToPay: number, balance: number) {
+  if (totalToPay <= 0) return amount;
+  return Math.max(0, Math.round(amount * (balance / totalToPay)));
+}
+
 export function createLoan(
   data: AppData,
-  input: Pick<Loan, "clientId" | "amount" | "interestRate" | "installmentsCount" | "frequency" | "startDate" | "notes">,
+  input: LoanInput,
   userId: string
 ): AppData {
   const loanId = uid("pre");
@@ -94,6 +118,10 @@ export function createLoan(
   const endDate = formatISO(getNextDueDate(input.startDate, input.frequency, input.installmentsCount - 1), {
     representation: "date"
   });
+
+  const currentBalance = Math.max(0, Math.min(input.currentBalance ?? calc.totalToPay, calc.totalToPay));
+  const paidAmount = calc.totalToPay - currentBalance;
+  const status = input.status ?? (currentBalance <= 0 ? "finalizado" : "activo");
 
   const loan: Loan = {
     id: loanId,
@@ -106,16 +134,16 @@ export function createLoan(
     endDate,
     totalToPay: calc.totalToPay,
     installmentValue: calc.installmentValue,
-    balance: calc.totalToPay,
-    principalBalance: input.amount,
+    balance: currentBalance,
+    principalBalance: principalFromBalance(input.amount, calc.totalToPay, currentBalance),
     profit: calc.profit,
     notes: input.notes,
-    status: "activo",
+    status,
     createdBy: userId,
     createdAt: new Date().toISOString()
   };
 
-  const schedule = buildSchedule({
+  const schedule = applyPaidAmountToSchedule(buildSchedule({
     loanId,
     clientId: input.clientId,
     startDate: input.startDate,
@@ -123,7 +151,7 @@ export function createLoan(
     installmentsCount: input.installmentsCount,
     installmentValue: calc.installmentValue,
     totalToPay: calc.totalToPay
-  });
+  }), paidAmount, data.settings);
 
   return normalizeData({
     ...data,
@@ -134,6 +162,63 @@ export function createLoan(
         id: uid("mov"),
         type: "prestamo_creado",
         description: `Prestamo creado por ${calc.totalToPay}`,
+        amount: input.amount,
+        userId,
+        createdAt: new Date().toISOString()
+      },
+      ...data.movements
+    ]
+  });
+}
+
+export function updateLoan(data: AppData, loanId: string, input: LoanInput, userId: string): AppData {
+  const calc = calculateLoan(input.amount, input.interestRate, input.installmentsCount);
+  const endDate = formatISO(getNextDueDate(input.startDate, input.frequency, input.installmentsCount - 1), {
+    representation: "date"
+  });
+  const currentBalance = Math.max(0, Math.min(input.currentBalance ?? calc.totalToPay, calc.totalToPay));
+  const paidAmount = calc.totalToPay - currentBalance;
+  const status = input.status ?? (currentBalance <= 0 ? "finalizado" : "activo");
+
+  const schedule = applyPaidAmountToSchedule(buildSchedule({
+    loanId,
+    clientId: input.clientId,
+    startDate: input.startDate,
+    frequency: input.frequency,
+    installmentsCount: input.installmentsCount,
+    installmentValue: calc.installmentValue,
+    totalToPay: calc.totalToPay
+  }), paidAmount, data.settings);
+
+  return normalizeData({
+    ...data,
+    loans: data.loans.map((loan) =>
+      loan.id === loanId
+        ? {
+          ...loan,
+          clientId: input.clientId,
+          amount: input.amount,
+          interestRate: input.interestRate,
+          installmentsCount: input.installmentsCount,
+          frequency: input.frequency,
+          startDate: input.startDate,
+          endDate,
+          totalToPay: calc.totalToPay,
+          installmentValue: calc.installmentValue,
+          balance: currentBalance,
+          principalBalance: principalFromBalance(input.amount, calc.totalToPay, currentBalance),
+          profit: calc.profit,
+          notes: input.notes,
+          status
+        }
+        : loan
+    ),
+    installments: [...schedule, ...data.installments.filter((installment) => installment.loanId !== loanId)],
+    movements: [
+      {
+        id: uid("mov"),
+        type: "prestamo_creado",
+        description: "Prestamo editado y cronograma recalculado",
         amount: input.amount,
         userId,
         createdAt: new Date().toISOString()

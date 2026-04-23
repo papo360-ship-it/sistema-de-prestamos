@@ -38,7 +38,11 @@ export function LoanDetailPage() {
 
   return (
     <>
-      <PageHeader title={`Prestamo de ${client?.fullName ?? "cliente"}`} description={`${currency(loan.amount, data.settings.currency)} prestados - saldo ${currency(loan.balance, data.settings.currency)}`} />
+      <PageHeader
+        title={`Prestamo de ${client?.fullName ?? "cliente"}`}
+        description={`${currency(loan.amount, data.settings.currency)} prestados - saldo ${currency(loan.balance, data.settings.currency)}`}
+        actions={<Link to={`/prestamos/${loan.id}/editar`}><Button variant="secondary">Editar prestamo</Button></Link>}
+      />
       <div className="mb-6 grid gap-4 md:grid-cols-4">
         <Metric label="Total a pagar" value={currency(loan.totalToPay, data.settings.currency)} />
         <Metric label="Cuota" value={currency(loan.installmentValue, data.settings.currency)} />

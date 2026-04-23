@@ -11,6 +11,7 @@ import type {
   PaymentMethod,
   PaymentType,
   Profile,
+  LoanInput,
   Settings
 } from "@/types";
 
@@ -142,6 +143,26 @@ function fromInstallment(input: Installment) {
   };
 }
 
+function applyPaidAmountToSchedule(installments: Installment[], paidAmount: number, settings: Settings) {
+  let remainingPaid = Math.max(0, paidAmount);
+
+  return installments.map((installment) => {
+    const applied = Math.min(installment.amount, remainingPaid);
+    remainingPaid -= applied;
+
+    return refreshInstallmentStatus({
+      ...installment,
+      paidAmount: applied,
+      balance: installment.amount - applied
+    }, settings);
+  });
+}
+
+function principalFromBalance(amount: number, totalToPay: number, balance: number) {
+  if (totalToPay <= 0) return amount;
+  return Math.max(0, Math.round(amount * (balance / totalToPay)));
+}
+
 function toPayment(row: Row): Payment {
   return {
     id: String(row.id),
@@ -271,13 +292,15 @@ export async function deleteClientRemote(clientId: string) {
 }
 
 export async function createLoanRemote(
-  input: Pick<Loan, "clientId" | "amount" | "interestRate" | "installmentsCount" | "frequency" | "startDate" | "notes">,
+  input: LoanInput,
   userId: string
 ) {
   const client = requireSupabase();
   const loanId = uid("pre");
   const calc = calculateLoan(input.amount, input.interestRate, input.installmentsCount);
   const endDate = formatISO(getNextDueDate(input.startDate, input.frequency, input.installmentsCount - 1), { representation: "date" });
+  const currentBalance = Math.max(0, Math.min(input.currentBalance ?? calc.totalToPay, calc.totalToPay));
+  const paidAmount = calc.totalToPay - currentBalance;
   const loan: Loan = {
     id: loanId,
     clientId: input.clientId,
@@ -289,15 +312,16 @@ export async function createLoanRemote(
     endDate,
     totalToPay: calc.totalToPay,
     installmentValue: calc.installmentValue,
-    balance: calc.totalToPay,
-    principalBalance: input.amount,
+    balance: currentBalance,
+    principalBalance: principalFromBalance(input.amount, calc.totalToPay, currentBalance),
     profit: calc.profit,
     notes: input.notes,
-    status: "activo",
+    status: input.status ?? (currentBalance <= 0 ? "finalizado" : "activo"),
     createdBy: userId,
     createdAt: new Date().toISOString()
   };
-  const schedule = buildSchedule({
+  const settings = (await fetchAppData()).settings;
+  const schedule = applyPaidAmountToSchedule(buildSchedule({
     loanId,
     clientId: input.clientId,
     startDate: input.startDate,
@@ -305,7 +329,7 @@ export async function createLoanRemote(
     installmentsCount: input.installmentsCount,
     installmentValue: calc.installmentValue,
     totalToPay: calc.totalToPay
-  });
+  }), paidAmount, settings);
 
   const { error: loanError } = await client.from("prestamos").insert(fromLoan(loan));
   if (loanError) throw loanError;
@@ -314,6 +338,60 @@ export async function createLoanRemote(
   await client.from("historial_movimientos").insert({
     type: "prestamo_creado",
     description: `Prestamo creado por ${calc.totalToPay}`,
+    amount: input.amount,
+    user_id: userId
+  });
+}
+
+export async function updateLoanRemote(loanId: string, input: LoanInput, userId: string) {
+  const client = requireSupabase();
+  const settings = (await fetchAppData()).settings;
+  const calc = calculateLoan(input.amount, input.interestRate, input.installmentsCount);
+  const endDate = formatISO(getNextDueDate(input.startDate, input.frequency, input.installmentsCount - 1), { representation: "date" });
+  const currentBalance = Math.max(0, Math.min(input.currentBalance ?? calc.totalToPay, calc.totalToPay));
+  const paidAmount = calc.totalToPay - currentBalance;
+  const status = input.status ?? (currentBalance <= 0 ? "finalizado" : "activo");
+
+  const { error: loanError } = await client
+    .from("prestamos")
+    .update({
+      client_id: input.clientId,
+      amount: input.amount,
+      interest_rate: input.interestRate,
+      installments_count: input.installmentsCount,
+      frequency: input.frequency,
+      start_date: input.startDate,
+      end_date: endDate,
+      total_to_pay: calc.totalToPay,
+      installment_value: calc.installmentValue,
+      balance: currentBalance,
+      principal_balance: principalFromBalance(input.amount, calc.totalToPay, currentBalance),
+      profit: calc.profit,
+      notes: input.notes || null,
+      status
+    })
+    .eq("id", loanId);
+  if (loanError) throw loanError;
+
+  const { error: deleteError } = await client.from("cuotas").delete().eq("loan_id", loanId);
+  if (deleteError) throw deleteError;
+
+  const schedule = applyPaidAmountToSchedule(buildSchedule({
+    loanId,
+    clientId: input.clientId,
+    startDate: input.startDate,
+    frequency: input.frequency,
+    installmentsCount: input.installmentsCount,
+    installmentValue: calc.installmentValue,
+    totalToPay: calc.totalToPay
+  }), paidAmount, settings);
+
+  const { error: scheduleError } = await client.from("cuotas").insert(schedule.map(fromInstallment));
+  if (scheduleError) throw scheduleError;
+
+  await client.from("historial_movimientos").insert({
+    type: "prestamo_creado",
+    description: "Prestamo editado y cronograma recalculado",
     amount: input.amount,
     user_id: userId
   });

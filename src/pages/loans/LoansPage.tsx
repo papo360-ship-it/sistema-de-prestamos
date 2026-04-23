@@ -1,5 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { Eye, Plus } from "lucide-react";
+import { Edit, Eye, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -26,7 +26,16 @@ export function LoansPage() {
     { accessorKey: "frequency", header: "Frecuencia" },
     { accessorKey: "startDate", header: "Inicio", cell: ({ row }) => shortDate(row.original.startDate) },
     { accessorKey: "status", header: "Estado", cell: ({ row }) => <Badge value={row.original.status} /> },
-    { id: "actions", header: "Acciones", cell: ({ row }) => <Link to={`/prestamos/${row.original.id}`}><Button variant="secondary"><Eye className="h-4 w-4" /> Ver</Button></Link> }
+    {
+      id: "actions",
+      header: "Acciones",
+      cell: ({ row }) => (
+        <div className="flex gap-2">
+          <Link to={`/prestamos/${row.original.id}`}><Button variant="secondary"><Eye className="h-4 w-4" /> Ver</Button></Link>
+          {user?.role === "admin" ? <Link to={`/prestamos/${row.original.id}/editar`}><Button variant="secondary"><Edit className="h-4 w-4" /> Editar</Button></Link> : null}
+        </div>
+      )
+    }
   ];
 
   return (

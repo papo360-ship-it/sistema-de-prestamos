@@ -8,6 +8,7 @@ import type { Profile, Role } from "@/types";
 interface AuthContextValue {
   user: Profile | null;
   loading: boolean;
+  error: string;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (roles: Role[]) => boolean;
@@ -19,6 +20,7 @@ const AUTH_KEY = "sistema-prestamos-user";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -28,12 +30,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (supabase) {
           const { data } = await supabase.auth.getSession();
           if (data.session?.user) {
-            const profile = await fetchProfile(data.session.user.id);
-            if (mounted) {
-              setUser(profile);
-              localStorage.setItem(AUTH_KEY, JSON.stringify(profile));
+            try {
+              const profile = await fetchProfile(data.session.user.id);
+              if (mounted) {
+                setUser(profile);
+                localStorage.setItem(AUTH_KEY, JSON.stringify(profile));
+              }
+              return;
+            } catch {
+              await supabase.auth.signOut();
+              localStorage.removeItem(AUTH_KEY);
+              if (mounted) {
+                setUser(null);
+                setError("Tu usuario existe en Auth, pero no tiene perfil en la tabla profiles.");
+              }
             }
-            return;
           }
         }
 
@@ -46,15 +57,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     restoreSession();
 
-    const subscription = supabase?.auth.onAuthStateChange(async (_event, session) => {
+    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
         localStorage.removeItem(AUTH_KEY);
         setUser(null);
         return;
       }
-      const profile = await fetchProfile(session.user.id);
-      setUser(profile);
-      localStorage.setItem(AUTH_KEY, JSON.stringify(profile));
+
+      setTimeout(async () => {
+        try {
+          const profile = await fetchProfile(session.user.id);
+          setUser(profile);
+          localStorage.setItem(AUTH_KEY, JSON.stringify(profile));
+          setError("");
+        } catch {
+          await supabase?.auth.signOut();
+          localStorage.removeItem(AUTH_KEY);
+          setUser(null);
+          setError("No se encontro el perfil del usuario en Supabase.");
+        }
+      }, 0);
     });
 
     return () => {
@@ -65,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     setLoading(true);
+    setError("");
     try {
       if (supabase) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -102,11 +125,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
+      error,
       login,
       logout,
       hasRole: (roles) => Boolean(user && roles.includes(user.role))
     }),
-    [loading, user]
+    [error, loading, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

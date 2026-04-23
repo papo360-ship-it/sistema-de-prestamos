@@ -6,7 +6,7 @@ import { Field, Input } from "@/components/ui/Field";
 import { useAuth } from "@/context/AuthContext";
 
 export function LoginPage() {
-  const { user, login, loading } = useAuth();
+  const { user, login, loading, error: authError } = useAuth();
   const location = useLocation();
   const [email, setEmail] = useState("admin@prestamos.com");
   const [password, setPassword] = useState("admin123");
@@ -77,6 +77,7 @@ export function LoginPage() {
                 </button>
               </div>
             </Field>
+            {authError ? <div className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-700">{authError}</div> : null}
             {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm font-semibold text-danger">{error}</div> : null}
             <Button className="w-full" disabled={loading}>
               {loading ? "Validando..." : "Entrar al sistema"}
